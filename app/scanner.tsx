@@ -4,19 +4,48 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useI18n } from '@/context/I18nContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useEvents } from '@/context/EventContext';
+import { useEvents, Booking } from '@/context/EventContext';
 import { useAuth } from '@/context/AuthContext';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { ArrowLeft, Flashlight, FlashlightOff, RotateCcw, CircleCheck as CheckCircle, Circle as XCircle, TriangleAlert as AlertTriangle } from 'lucide-react-native';
+import { ArrowLeft, Flashlight, FlashlightOff, RotateCcw, CircleCheck as CheckCircle, Circle as XCircle, TriangleAlert as AlertTriangle, Camera } from 'lucide-react-native';
+
+// Platform-specific camera import
+let CameraView: any = null;
+let useCameraPermissions: any = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    const cameraModule = require('expo-camera');
+    CameraView = cameraModule.CameraView;
+    useCameraPermissions = cameraModule.useCameraPermissions;
+  } catch (error) {
+    console.warn('Camera module not available:', error);
+  }
+}
 
 const { height } = Dimensions.get('window');
+
+const statusColors = {
+  confirmed: '#10B981',
+  cancelled: '#EF4444',
+  used: '#6B7280',
+};
+
+const statusLabels = {
+  confirmed: 'مؤكد',
+  cancelled: 'ملغي',
+  used: 'مستخدم',
+};
 
 export default function ScannerScreen() {
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { bookings, markTicketAsUsed } = useEvents();
+  const { bookings, getEventById, markTicketAsUsed } = useEvents();
   const { isBusinessAccount } = useAuth();
-  const [permission, requestPermission] = useCameraPermissions();
+  
+  // Camera permissions (only for native platforms)
+  const [permission, requestPermission] = Platform.OS !== 'web' && useCameraPermissions ? 
+    useCameraPermissions() : [null, () => Promise.resolve()];
+  
   const [scanned, setScanned] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [scanResult, setScanResult] = useState<{
@@ -24,6 +53,10 @@ export default function ScannerScreen() {
     title: string;
     message: string;
   } | null>(null);
+
+  // Web-specific QR scanning state
+  const [manualQRCode, setManualQRCode] = useState('');
+  const [isManualEntry, setIsManualEntry] = useState(Platform.OS === 'web');
 
   // Debounce scanning to prevent multiple scans
   const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -39,7 +72,8 @@ export default function ScannerScreen() {
       );
     }
     
-    if (!permission?.granted) {
+    // Request camera permissions only on native platforms
+    if (Platform.OS !== 'web' && !permission?.granted && useCameraPermissions) {
       requestPermission();
     }
   }, [permission, isBusinessAccount]);
@@ -62,6 +96,18 @@ export default function ScannerScreen() {
       clearTimeout(scanTimeoutRef.current);
     }
     
+    await processQRCode(data);
+  };
+
+  const handleManualQRSubmit = async () => {
+    if (!manualQRCode.trim()) {
+      Alert.alert('خطأ', 'يرجى إدخال رمز QR');
+      return;
+    }
+    await processQRCode(manualQRCode.trim());
+  };
+
+  const processQRCode = async (data: string) => {
     setScanned(true);
     lastScannedCode.current = data;
     
@@ -135,6 +181,7 @@ export default function ScannerScreen() {
     setScanned(false);
     setScanResult(null);
     lastScannedCode.current = '';
+    setManualQRCode('');
     
     // Clear any existing timeout
     if (scanTimeoutRef.current) {
@@ -148,7 +195,9 @@ export default function ScannerScreen() {
   };
 
   const toggleFlash = () => {
-    setFlashEnabled(prev => !prev);
+    if (Platform.OS !== 'web') {
+      setFlashEnabled(prev => !prev);
+    }
   };
 
   const getResultIcon = () => {
@@ -169,49 +218,49 @@ export default function ScannerScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: 'black',
+      backgroundColor: theme.colors.background,
     },
     header: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      zIndex: 1000,
-      backgroundColor: 'rgba(0, 0, 0, 0.7)',
-      paddingTop: 50,
-      paddingHorizontal: 20,
-      paddingBottom: 20,
-    },
-    headerContent: {
+      backgroundColor: theme.colors.surface,
       flexDirection: 'row',
+      alignItems: 'center',
       justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: theme.isDark ? 0.3 : 0.1,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    headerLeft: {
+      flexDirection: 'row',
       alignItems: 'center',
     },
     backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-      justifyContent: 'center',
-      alignItems: 'center',
+      padding: 8,
+      marginRight: 8,
     },
     headerTitle: {
       fontSize: 20,
       fontFamily: 'Cairo-Bold',
-      color: 'white',
-      flex: 1,
-      textAlign: 'center',
-      marginHorizontal: 20,
+      color: theme.colors.text,
     },
     flashButton: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: flashEnabled ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.2)',
+      backgroundColor: flashEnabled ? theme.colors.primary : theme.colors.background,
       justifyContent: 'center',
       alignItems: 'center',
-      borderWidth: flashEnabled ? 2 : 0,
-      borderColor: 'white',
+      borderWidth: flashEnabled ? 2 : 1,
+      borderColor: flashEnabled ? theme.colors.primary : theme.colors.border,
+    },
+    cameraContainer: {
+      flex: 1,
+      position: 'relative',
     },
     camera: {
       flex: 1,
@@ -290,6 +339,71 @@ export default function ScannerScreen() {
       color: 'rgba(255, 255, 255, 0.9)',
       textAlign: 'center',
       lineHeight: 20,
+    },
+    webScannerContainer: {
+      flex: 1,
+      padding: 20,
+      justifyContent: 'center',
+    },
+    webScannerCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 16,
+      padding: 24,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: theme.isDark ? 0.3 : 0.1,
+      shadowRadius: 12,
+      elevation: 8,
+    },
+    webScannerTitle: {
+      fontSize: 24,
+      fontFamily: 'Cairo-Bold',
+      color: theme.colors.text,
+      textAlign: 'center',
+      marginBottom: 16,
+    },
+    webScannerSubtitle: {
+      fontSize: 16,
+      fontFamily: 'Cairo-Regular',
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: 32,
+    },
+    manualEntryContainer: {
+      marginBottom: 24,
+    },
+    inputLabel: {
+      fontSize: 16,
+      fontFamily: 'Cairo-SemiBold',
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    qrInput: {
+      backgroundColor: theme.colors.background,
+      borderWidth: 2,
+      borderColor: theme.colors.border,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      fontSize: 16,
+      fontFamily: 'Cairo-Regular',
+      color: theme.colors.text,
+      textAlign: 'center',
+      marginBottom: 16,
+    },
+    scanButton: {
+      backgroundColor: theme.colors.primary,
+      paddingVertical: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    scanButtonText: {
+      fontSize: 18,
+      fontFamily: 'Cairo-Bold',
+      color: 'white',
     },
     resultModal: {
       position: 'absolute',
@@ -465,91 +579,54 @@ export default function ScannerScreen() {
     );
   }
 
-  if (!permission) {
+  // Web platform - show manual QR entry
+  if (Platform.OS === 'web') {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>جاري تحميل الكاميرا...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  if (!permission.granted) {
-    return (
-      <SafeAreaView style={styles.permissionContainer}>
-        <Text style={styles.permissionTitle}>إذن الكاميرا مطلوب</Text>
-        <Text style={styles.permissionText}>
-          نحتاج إلى إذن الكاميرا لمسح رموز QR الخاصة بالتذاكر
-        </Text>
-        <TouchableOpacity
-          style={styles.permissionButton}
-          onPress={requestPermission}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.permissionButtonText}>منح الإذن</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <ArrowLeft size={24} color="white" />
-          </TouchableOpacity>
-          
-          <Text style={styles.headerTitle}>مسح التذاكر</Text>
-          
-          <TouchableOpacity
-            style={styles.flashButton}
-            onPress={toggleFlash}
-            activeOpacity={0.7}
-          >
-            {flashEnabled ? (
-              <FlashlightOff size={24} color="white" />
-            ) : (
-              <Flashlight size={24} color="white" />
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Camera */}
-      <CameraView
-        style={styles.camera}
-        facing="back"
-        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-        enableTorch={flashEnabled}
-        barcodeScannerSettings={{
-          barcodeTypes: ['qr'],
-        }}
-      >
-        {/* Scan Overlay */}
-        <View style={styles.overlay}>
-          <View style={styles.scanArea}>
-            <View style={[styles.scanAreaCorner, styles.topLeft]} />
-            <View style={[styles.scanAreaCorner, styles.topRight]} />
-            <View style={[styles.scanAreaCorner, styles.bottomLeft]} />
-            <View style={[styles.scanAreaCorner, styles.bottomRight]} />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>مسح التذاكر</Text>
           </View>
         </View>
 
-        {/* Instructions */}
-        {!scanned && (
-          <View style={styles.instructions}>
-            <Text style={styles.instructionsTitle}>وجه الكاميرا نحو رمز QR</Text>
-            <Text style={styles.instructionsText}>
-              ضع رمز QR الخاص بالتذكرة داخل الإطار المربع لمسحه تلقائياً
-              {flashEnabled && '\n\n💡 الفلاش مفعل'}
+        <View style={styles.webScannerContainer}>
+          <View style={styles.webScannerCard}>
+            <Camera size={64} color={theme.colors.primary} style={{ alignSelf: 'center', marginBottom: 16 }} />
+            <Text style={styles.webScannerTitle}>مسح رمز QR</Text>
+            <Text style={styles.webScannerSubtitle}>
+              أدخل رمز QR الخاص بالتذكرة يدوياً أو استخدم التطبيق على الهاتف المحمول للمسح التلقائي
             </Text>
+
+            <View style={styles.manualEntryContainer}>
+              <Text style={styles.inputLabel}>رمز QR للتذكرة</Text>
+              <TextInput
+                style={styles.qrInput}
+                placeholder="MI3AD-1234567890-ABC123"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={manualQRCode}
+                onChangeText={setManualQRCode}
+                autoCapitalize="characters"
+              />
+              
+              <TouchableOpacity
+                style={styles.scanButton}
+                onPress={handleManualQRSubmit}
+                activeOpacity={0.7}
+              >
+                <CheckCircle size={20} color="white" />
+                <Text style={styles.scanButtonText}>فحص التذكرة</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
+        </View>
 
         {/* Result Modal */}
         {scanResult && (
@@ -592,7 +669,143 @@ export default function ScannerScreen() {
             </View>
           </View>
         )}
-      </CameraView>
+      </SafeAreaView>
+    );
+  }
+
+  // Native platforms - check permissions
+  if (!permission) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>جاري تحميل الكاميرا...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <SafeAreaView style={styles.permissionContainer}>
+        <Text style={styles.permissionTitle}>إذن الكاميرا مطلوب</Text>
+        <Text style={styles.permissionText}>
+          نحتاج إلى إذن الكاميرا لمسح رموز QR الخاصة بالتذاكر
+        </Text>
+        <TouchableOpacity
+          style={styles.permissionButton}
+          onPress={requestPermission}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.permissionButtonText}>منح الإذن</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  // Native camera view
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>مسح التذاكر</Text>
+        </View>
+        
+        <TouchableOpacity
+          style={styles.flashButton}
+          onPress={toggleFlash}
+          activeOpacity={0.7}
+        >
+          {flashEnabled ? (
+            <FlashlightOff size={24} color="white" />
+          ) : (
+            <Flashlight size={24} color={theme.colors.text} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Camera */}
+      <View style={styles.cameraContainer}>
+        {CameraView && (
+          <CameraView
+            style={styles.camera}
+            facing="back"
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+            enableTorch={flashEnabled}
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr'],
+            }}
+          >
+            {/* Scan Overlay */}
+            <View style={styles.overlay}>
+              <View style={styles.scanArea}>
+                <View style={[styles.scanAreaCorner, styles.topLeft]} />
+                <View style={[styles.scanAreaCorner, styles.topRight]} />
+                <View style={[styles.scanAreaCorner, styles.bottomLeft]} />
+                <View style={[styles.scanAreaCorner, styles.bottomRight]} />
+              </View>
+            </View>
+
+            {/* Instructions */}
+            {!scanned && (
+              <View style={styles.instructions}>
+                <Text style={styles.instructionsTitle}>وجه الكاميرا نحو رمز QR</Text>
+                <Text style={styles.instructionsText}>
+                  ضع رمز QR الخاص بالتذكرة داخل الإطار المربع لمسحه تلقائياً
+                  {flashEnabled && '\n\n💡 الفلاش مفعل'}
+                </Text>
+              </View>
+            )}
+
+            {/* Result Modal */}
+            {scanResult && (
+              <View style={styles.resultModal}>
+                <View style={styles.resultHeader}>
+                  {getResultIcon()}
+                  <Text style={styles.resultTitle}>{scanResult.title}</Text>
+                  <Text style={styles.resultMessage}>{scanResult.message}</Text>
+                </View>
+
+                <View style={styles.resultActions}>
+                  {scanResult.type === 'success' ? (
+                    <>
+                      <TouchableOpacity 
+                        style={styles.confirmButton} 
+                        onPress={confirmEntry}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.confirmButtonText}>تأكيد الدخول</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.retryButton} 
+                        onPress={resetScanner}
+                        activeOpacity={0.7}
+                      >
+                        <RotateCcw size={20} color="white" />
+                        <Text style={styles.retryButtonText}>مسح آخر</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity 
+                      style={styles.singleActionButton} 
+                      onPress={resetScanner}
+                      activeOpacity={0.7}
+                    >
+                      <RotateCcw size={20} color="white" />
+                      <Text style={styles.retryButtonText}>مسح مرة أخرى</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            )}
+          </CameraView>
+        )}
+      </View>
     </SafeAreaView>
   );
 }

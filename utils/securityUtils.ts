@@ -1,6 +1,15 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
+
+// Platform-specific crypto import
+let Crypto: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    Crypto = require('expo-crypto');
+  } catch (error) {
+    console.warn('Crypto module not available:', error);
+  }
+}
 
 export interface EncryptionKey {
   key: string;
@@ -12,20 +21,39 @@ export interface EncryptionKey {
  */
 export const generateEncryptionKey = async (): Promise<EncryptionKey> => {
   try {
-    const key = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      Math.random().toString()
-    );
+    let key: string;
+    let iv: string;
+
+    if (Platform.OS === 'web') {
+      // Web fallback using built-in crypto
+      key = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('').substring(0, 32);
+      
+      iv = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('').substring(0, 16);
+    } else if (Crypto) {
+      // Native platform using expo-crypto
+      key = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        Math.random().toString()
+      );
+      
+      iv = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        Date.now().toString()
+      );
+      
+      key = key.substring(0, 32);
+      iv = iv.substring(0, 16);
+    } else {
+      // Fallback for when crypto is not available
+      key = Math.random().toString(36).substring(2, 34);
+      iv = Math.random().toString(36).substring(2, 18);
+    }
     
-    const iv = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      Date.now().toString()
-    );
-    
-    return {
-      key: key.substring(0, 32),
-      iv: iv.substring(0, 16)
-    };
+    return { key, iv };
   } catch (error) {
     console.error('Error generating encryption key:', error);
     throw new Error('فشل في إنشاء مفتاح التشفير');
@@ -92,9 +120,14 @@ export const deleteSecureData = async (key: string): Promise<void> => {
  */
 const encryptData = async (data: string): Promise<string> => {
   try {
-    // Simple base64 encoding for demo purposes
-    // In production, use proper encryption libraries
-    return btoa(unescape(encodeURIComponent(data)));
+    if (Platform.OS === 'web') {
+      // Simple base64 encoding for demo purposes
+      // In production, use proper encryption libraries
+      return btoa(unescape(encodeURIComponent(data)));
+    } else {
+      // For native platforms, return as-is (would use proper encryption in production)
+      return data;
+    }
   } catch (error) {
     console.error('Encryption error:', error);
     throw new Error('فشل في تشفير البيانات');
@@ -106,9 +139,14 @@ const encryptData = async (data: string): Promise<string> => {
  */
 const decryptData = async (encryptedData: string): Promise<string> => {
   try {
-    // Simple base64 decoding for demo purposes
-    // In production, use proper decryption libraries
-    return decodeURIComponent(escape(atob(encryptedData)));
+    if (Platform.OS === 'web') {
+      // Simple base64 decoding for demo purposes
+      // In production, use proper decryption libraries
+      return decodeURIComponent(escape(atob(encryptedData)));
+    } else {
+      // For native platforms, return as-is (would use proper decryption in production)
+      return encryptedData;
+    }
   } catch (error) {
     console.error('Decryption error:', error);
     throw new Error('فشل في فك تشفير البيانات');
@@ -120,15 +158,34 @@ const decryptData = async (encryptedData: string): Promise<string> => {
  */
 export const hashPassword = async (password: string, salt?: string): Promise<{ hash: string; salt: string }> => {
   try {
-    const passwordSalt = salt || await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      Math.random().toString()
-    ).then(hash => hash.substring(0, 16));
-    
-    const hash = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      password + passwordSalt
-    );
+    let passwordSalt: string;
+    let hash: string;
+
+    if (Platform.OS === 'web') {
+      // Web fallback
+      passwordSalt = salt || Math.random().toString(36).substring(2, 18);
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password + passwordSalt);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      hash = Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    } else if (Crypto) {
+      // Native platform using expo-crypto
+      passwordSalt = salt || await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        Math.random().toString()
+      ).then(hash => hash.substring(0, 16));
+      
+      hash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        password + passwordSalt
+      );
+    } else {
+      // Fallback
+      passwordSalt = salt || Math.random().toString(36).substring(2, 18);
+      hash = btoa(password + passwordSalt); // Simple encoding as fallback
+    }
     
     return { hash, salt: passwordSalt };
   } catch (error) {
@@ -155,15 +212,30 @@ export const verifyPassword = async (password: string, hash: string, salt: strin
  */
 export const generateSecureToken = async (length: number = 32): Promise<string> => {
   try {
-    const randomString = Math.random().toString(36).substring(2, 2 + length) + 
-                         Date.now().toString(36);
+    let hash: string;
+
+    if (Platform.OS === 'web') {
+      // Web fallback
+      const randomArray = crypto.getRandomValues(new Uint8Array(length));
+      hash = Array.from(randomArray)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('').substring(0, length);
+    } else if (Crypto) {
+      // Native platform
+      const randomString = Math.random().toString(36).substring(2, 2 + length) + 
+                           Date.now().toString(36);
+      
+      hash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        randomString
+      );
+      hash = hash.substring(0, length);
+    } else {
+      // Fallback
+      hash = Math.random().toString(36).substring(2, 2 + length);
+    }
     
-    const hash = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      randomString
-    );
-    
-    return hash.substring(0, length);
+    return hash;
   } catch (error) {
     console.error('Token generation error:', error);
     throw new Error('فشل في إنشاء الرمز الآمن');
@@ -179,7 +251,7 @@ export const encryptUserData = async (data: any, password: string): Promise<stri
     const { hash, salt } = await hashPassword(password);
     
     // Simple encryption for demo - use proper encryption in production
-    const encryptedData = btoa(unescape(encodeURIComponent(jsonData)));
+    const encryptedData = await encryptData(jsonData);
     
     return JSON.stringify({
       data: encryptedData,
@@ -209,7 +281,7 @@ export const decryptUserData = async (encryptedData: string, password: string): 
     }
     
     // Decrypt data
-    const decryptedJson = decodeURIComponent(escape(atob(data)));
+    const decryptedJson = await decryptData(data);
     return JSON.parse(decryptedJson);
   } catch (error) {
     console.error('Data decryption error:', error);
@@ -224,7 +296,13 @@ export const hasSecureHardware = async (): Promise<boolean> => {
   try {
     // This is a simplified check - in a real app, you would use
     // platform-specific APIs to check for secure hardware
-    return Platform.OS !== 'web';
+    if (Platform.OS === 'web') {
+      // Check for Web Crypto API support
+      return typeof crypto !== 'undefined' && typeof crypto.subtle !== 'undefined';
+    } else {
+      // For mobile platforms, assume secure hardware is available
+      return true;
+    }
   } catch (error) {
     console.error('Secure hardware check error:', error);
     return false;

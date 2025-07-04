@@ -23,6 +23,7 @@ import { FavoritesProvider } from '@/context/FavoritesContext';
 import { SecurityProvider } from '@/context/SecurityContext';
 import { NotificationProvider } from '@/context/NotificationContext';
 import SplashScreenComponent from '@/components/SplashScreen';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { View, StyleSheet } from 'react-native';
 
 SplashScreen.preventAutoHideAsync();
@@ -55,42 +56,44 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider>
-      <SecurityProvider>
-        <AuthProvider>
-          <I18nProvider>
-            <NotificationProvider>
-              <EventProvider>
-                <ChatProvider>
-                  <FavoritesProvider>
-                    <View style={styles.container}>
-                      <Stack screenOptions={{ headerShown: false }}>
-                        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                        <Stack.Screen name="event/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                        <Stack.Screen name="booking/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                        <Stack.Screen name="ticket/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                        <Stack.Screen name="scanner" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                        <Stack.Screen name="chat" options={{ headerShown: false }} />
-                        <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
-                        <Stack.Screen name="school/[id]" options={{ headerShown: false }} />
-                        <Stack.Screen name="saved" options={{ headerShown: false }} />
-                        <Stack.Screen name="security-privacy" options={{ headerShown: false }} />
-                        <Stack.Screen name="notifications" options={{ headerShown: false }} />
-                        <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
-                        <Stack.Screen name="+not-found" />
-                      </Stack>
-                      <StatusBar style="auto" />
-                      {showSplash && <SplashScreenComponent onAnimationComplete={handleSplashComplete} />}
-                    </View>
-                  </FavoritesProvider>
-                </ChatProvider>
-              </EventProvider>
-            </NotificationProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </SecurityProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <SecurityProvider>
+          <AuthProvider>
+            <I18nProvider>
+              <NotificationProvider>
+                <EventProvider>
+                  <ChatProvider>
+                    <FavoritesProvider>
+                      <View style={styles.container}>
+                        <Stack screenOptions={{ headerShown: false }}>
+                          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                          <Stack.Screen name="event/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                          <Stack.Screen name="booking/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                          <Stack.Screen name="ticket/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                          <Stack.Screen name="scanner" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                          <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+                          <Stack.Screen name="school/[id]" options={{ headerShown: false }} />
+                          <Stack.Screen name="saved" options={{ headerShown: false }} />
+                          <Stack.Screen name="security-privacy" options={{ headerShown: false }} />
+                          <Stack.Screen name="notifications" options={{ headerShown: false }} />
+                          <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
+                          <Stack.Screen name="+not-found" />
+                        </Stack>
+                        <StatusBar style="auto" />
+                        {showSplash && <SplashScreenComponent onAnimationComplete={handleSplashComplete} />}
+                      </View>
+                    </FavoritesProvider>
+                  </ChatProvider>
+                </EventProvider>
+              </NotificationProvider>
+            </I18nProvider>
+          </AuthProvider>
+        </SecurityProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -1,8 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { Platform, Alert } from 'react-native';
 import { storeSecureData, getSecureData, deleteSecureData, encryptUserData, decryptUserData, generateSecureToken, hasSecureHardware } from '@/utils/securityUtils';
+
+// Platform-specific imports
+let LocalAuthentication: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    LocalAuthentication = require('expo-local-authentication');
+  } catch (error) {
+    console.warn('LocalAuthentication not available:', error);
+  }
+}
 
 export interface BiometricSettings {
   enabled: boolean;
@@ -52,6 +61,13 @@ export interface SecurityAuditLog {
   success: boolean;
 }
 
+export interface SecurityScanResult {
+  overallScore: number;
+  recommendations: string[];
+  vulnerabilities: string[];
+  strengths: string[];
+}
+
 interface SecurityContextType {
   securitySettings: SecuritySettings;
   isOnline: boolean;
@@ -77,13 +93,6 @@ interface SecurityContextType {
   clearAuditLogs: () => Promise<void>;
   enableMaximumSecurity: () => Promise<void>;
   performSecurityScan: () => Promise<SecurityScanResult>;
-}
-
-export interface SecurityScanResult {
-  overallScore: number;
-  recommendations: string[];
-  vulnerabilities: string[];
-  strengths: string[];
 }
 
 const SecurityContext = createContext<SecurityContextType | undefined>(undefined);
@@ -159,22 +168,31 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       const hasSecureHW = await hasSecureHardware();
       setHasSecureHardwareSupport(hasSecureHW);
       
-      // Check biometric availability
-      if (Platform.OS !== 'web') {
-        const isAvailable = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-        setIsBiometricAvailable(isAvailable && isEnrolled);
+      // Check biometric availability (only on native platforms)
+      if (Platform.OS !== 'web' && LocalAuthentication) {
+        try {
+          const isAvailable = await LocalAuthentication.hasHardwareAsync();
+          const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+          setIsBiometricAvailable(isAvailable && isEnrolled);
 
-        if (isAvailable && isEnrolled) {
-          const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-          if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-            setBiometricType('face');
-          } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-            setBiometricType('fingerprint');
-          } else if (types.includes(LocalAuthentication.AuthenticationType.IRIS)) {
-            setBiometricType('iris');
+          if (isAvailable && isEnrolled) {
+            const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+            if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+              setBiometricType('face');
+            } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+              setBiometricType('fingerprint');
+            } else if (types.includes(LocalAuthentication.AuthenticationType.IRIS)) {
+              setBiometricType('iris');
+            }
           }
+        } catch (error) {
+          console.warn('Biometric check failed:', error);
+          setIsBiometricAvailable(false);
         }
+      } else {
+        // Web platform fallback
+        setIsBiometricAvailable(false);
+        setBiometricType(null);
       }
 
       // Load audit logs
@@ -281,12 +299,12 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const authenticateWithBiometric = async (): Promise<boolean> => {
     try {
       if (Platform.OS === 'web') {
-        Alert.alert('غير متاح', 'المصادقة البيومترية غير متاحة على الويب');
+        Alert.alert('غير متاح', 'المصادقة البيومترية غير متاحة على الويب. يرجى استخدام كلمة المرور.');
         await addAuditLog('biometric_auth_web', 'محاولة مصادقة بيومترية على الويب', false);
         return false;
       }
 
-      if (!isBiometricAvailable) {
+      if (!LocalAuthentication || !isBiometricAvailable) {
         Alert.alert('غير متاح', 'المصادقة البيومترية غير متاحة على هذا الجهاز');
         await addAuditLog('biometric_auth_unavailable', 'المصادقة البيومترية غير متاحة', false);
         return false;
@@ -368,7 +386,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   };
 
   const unlockApp = async (): Promise<boolean> => {
-    if (securitySettings.biometric.enabled) {
+    if (securitySettings.biometric.enabled && Platform.OS !== 'web') {
       return await authenticateWithBiometric();
     } else {
       // For demo, auto-unlock. In production, show password prompt
@@ -556,7 +574,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
         auditLogEnabled: true,
         biometric: {
           ...securitySettings.biometric,
-          enabled: isBiometricAvailable,
+          enabled: isBiometricAvailable && Platform.OS !== 'web',
           requireForLogin: true,
           requireForSensitiveActions: true,
           lockTimeout: 1, // 1 minute
@@ -599,12 +617,17 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       const strengths: string[] = [];
       
       // Check biometric authentication
-      if (securitySettings.biometric.enabled && isBiometricAvailable) {
+      if (securitySettings.biometric.enabled && isBiometricAvailable && Platform.OS !== 'web') {
         score += 25;
         strengths.push('المصادقة البيومترية مفعلة');
       } else {
-        vulnerabilities.push('المصادقة البيومترية غير مفعلة');
-        recommendations.push('فعّل المصادقة البيومترية لحماية إضافية');
+        if (Platform.OS === 'web') {
+          vulnerabilities.push('المصادقة البيومترية غير متاحة على الويب');
+          recommendations.push('استخدم كلمة مرور قوية كبديل للمصادقة البيومترية');
+        } else {
+          vulnerabilities.push('المصادقة البيومترية غير مفعلة');
+          recommendations.push('فعّل المصادقة البيومترية لحماية إضافية');
+        }
       }
       
       // Check encryption
@@ -657,8 +680,13 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
         score += 10;
         strengths.push('الجهاز يدعم الأجهزة الآمنة');
       } else {
-        vulnerabilities.push('الجهاز لا يدعم الأجهزة الآمنة');
-        recommendations.push('استخدم جهازاً يدعم الأجهزة الآمنة إن أمكن');
+        if (Platform.OS === 'web') {
+          vulnerabilities.push('منصة الويب لا تدعم الأجهزة الآمنة');
+          recommendations.push('استخدم التطبيق على الهاتف المحمول للحصول على أمان أفضل');
+        } else {
+          vulnerabilities.push('الجهاز لا يدعم الأجهزة الآمنة');
+          recommendations.push('استخدم جهازاً يدعم الأجهزة الآمنة إن أمكن');
+        }
       }
       
       const result: SecurityScanResult = {
